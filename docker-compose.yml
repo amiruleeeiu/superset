@@ -22,8 +22,8 @@
 # unique random secure passwords and SECRET_KEY.
 # -----------------------------------------------------------------------
 x-superset-user: &superset-user root
-x-superset-volumes: &superset-volumes
-  # /app/pythonpath_docker will be appended to the PYTHONPATH in the final container
+x-superset-volumes:
+  &superset-volumes # /app/pythonpath_docker will be appended to the PYTHONPATH in the final container
   - ./docker:/app/docker
   - ./superset:/app/superset
   - ./superset-frontend:/app/superset-frontend
@@ -50,6 +50,9 @@ services:
     image: nginx:latest
     container_name: superset_nginx
     restart: unless-stopped
+
+    networks:
+      - mynet
     ports:
       - "80:80"
     extra_hosts:
@@ -62,6 +65,9 @@ services:
     image: redis:7
     container_name: superset_cache
     restart: unless-stopped
+
+    networks:
+      - mynet
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
@@ -75,9 +81,12 @@ services:
         required: false
     image: postgres:16
     container_name: superset_db
+
+    networks:
+      - mynet
     restart: unless-stopped
     ports:
-      - "127.0.0.1:5432:5432"
+      - "5432:5432"
     volumes:
       - db_home:/var/lib/postgresql/data
       - ./docker/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
@@ -93,6 +102,9 @@ services:
     container_name: superset_app
     command: ["/app/docker/docker-bootstrap.sh", "app"]
     restart: unless-stopped
+
+    networks:
+      - mynet
     ports:
       - 8088:8088
       # When in cypress-mode ->
@@ -111,6 +123,9 @@ services:
   superset-websocket:
     container_name: superset_websocket
     build: ./superset-websocket
+
+    networks:
+      - mynet
     ports:
       - 8080:8080
     extra_hosts:
@@ -158,6 +173,9 @@ services:
         condition: service_started
     user: *superset-user
     volumes: *superset-volumes
+
+    networks:
+      - mynet
     environment:
       CYPRESS_CONFIG: "${CYPRESS_CONFIG:-}"
       SUPERSET_LOAD_EXAMPLES: "${SUPERSET_LOAD_EXAMPLES:-yes}"
@@ -184,8 +202,11 @@ services:
       # configuring the dev-server to use the host.docker.internal to connect to the backend
       superset: "http://superset:8088"
     ports:
-      - "127.0.0.1:9000:9000"  # exposing the dynamic webpack dev server
+      - "127.0.0.1:9000:9000" # exposing the dynamic webpack dev server
     container_name: superset_node
+
+    networks:
+      - mynet
     command: ["/app/docker/docker-frontend.sh"]
     env_file:
       - path: docker/.env # default
@@ -209,6 +230,9 @@ services:
       CYPRESS_CONFIG: "${CYPRESS_CONFIG:-}"
       SUPERSET_LOG_LEVEL: "${SUPERSET_LOG_LEVEL:-info}"
     restart: unless-stopped
+
+    networks:
+      - mynet
     depends_on:
       superset-init:
         condition: service_completed_successfully
@@ -217,7 +241,11 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD-SHELL", "celery -A superset.tasks.celery_app:app inspect ping -d celery@$$HOSTNAME"]
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A superset.tasks.celery_app:app inspect ping -d celery@$$HOSTNAME",
+        ]
     # Bump memory limit if processing selenium / thumbnails on superset-worker
     # mem_limit: 2038m
     # mem_reservation: 128M
@@ -237,6 +265,9 @@ services:
       - superset-worker
     user: *superset-user
     volumes: *superset-volumes
+
+    networks:
+      - mynet
     healthcheck:
       disable: true
     environment:
@@ -263,14 +294,20 @@ services:
       REDIS_HOST: localhost
       CELERYD_CONCURRENCY: 8
       SUPERSET_LOG_LEVEL: "${SUPERSET_LOG_LEVEL:-info}"
-    network_mode: host
+
+    networks:
+      - mynet
     depends_on:
       superset-init:
         condition: service_completed_successfully
     user: *superset-user
     volumes: *superset-volumes
     healthcheck:
-      test: ["CMD-SHELL", "celery inspect ping -A superset.tasks.celery_app:app -d celery@$$HOSTNAME"]
+      test:
+        [
+          "CMD-SHELL",
+          "celery inspect ping -A superset.tasks.celery_app:app -d celery@$$HOSTNAME",
+        ]
 
 volumes:
   superset_home:
@@ -279,3 +316,6 @@ volumes:
     external: false
   redis:
     external: false
+networks:
+  mynet:
+    driver: bridge

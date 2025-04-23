@@ -145,6 +145,17 @@ RUN if [ "$BUILD_TRANSLATIONS" = "true" ]; then \
 ######################################################################
 FROM python-base AS python-common
 
+# --- Add Oracle Environment Variables ---
+
+
+# --- Install cx_Oracle or oracledb Python library ---
+RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
+    uv pip install oracledb
+
+# Rest of your existing commands...
+# Copy the entrypoints, make them executable in userspace
+COPY --chmod=755 docker/entrypoints /app/docker/entrypoints
+
 ENV SUPERSET_HOME="/app/superset_home" \
     HOME="/app/superset_home" \
     SUPERSET_ENV="production" \
@@ -225,6 +236,17 @@ RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
     uv pip install .
 RUN python -m compileall /app/superset
+RUN pip install --upgrade pip
+
+RUN curl -O https://download.oracle.com/otn_software/linux/instantclient/instantclient-basiclite-linux.x64-21.11.0.0.0dbru.zip && \
+    unzip instantclient-basiclite-linux.x64-21.11.0.0.0dbru.zip -d /opt/oracle && \
+    rm instantclient-basiclite-linux.x64-21.11.0.0.0dbru.zip && \
+    ln -s /opt/oracle/instantclient_* /opt/oracle/instantclient && \
+    echo /opt/oracle/instantclient > /etc/ld.so.conf.d/oracle-instantclient.conf && \
+    ldconfig
+
+RUN uv pip install cx_Oracle
+RUN pip install sqlalchemy-oracledb
 
 USER superset
 
@@ -238,6 +260,7 @@ RUN /app/docker/apt-install.sh \
     git \
     pkg-config \
     default-libmysqlclient-dev
+    
 
 # Copy development requirements and install them
 COPY requirements/*.txt requirements/
@@ -248,7 +271,13 @@ RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
     uv pip install .
 
+# Install build dependencies
+RUN apt-get update && \
+    apt-get install -y gcc python3-dev libaio1
+
 RUN uv pip install .[postgres]
+RUN pip install oracledb
+
 RUN python -m compileall /app/superset
 
 USER superset
@@ -259,5 +288,6 @@ USER superset
 FROM lean AS ci
 USER root
 RUN uv pip install .[postgres]
+RUN uv pip install oracledb
 USER superset
 CMD ["/app/docker/entrypoints/docker-ci.sh"]

@@ -308,10 +308,13 @@ AUTH_RATE_LIMIT = "5 per second"
 # GLOBALS FOR APP Builder
 # ------------------------------
 # Uncomment to setup Your App name
-APP_NAME = "Superset"
+APP_NAME = "LSG BI"
 
 # Specify the App icon
-APP_ICON = "/static/assets/images/superset-logo-horiz.png"
+# APP_ICON = "/static/assets/images/superset-logo-horiz.png"
+APP_ICON = "/static/assets/images/LSG Dashboard Logo.webp"
+
+
 
 # Specify where clicking the logo would take the user'
 # Default value of None will take you to '/superset/welcome'
@@ -397,6 +400,12 @@ LANGUAGES = {
 # Turning off i18n by default as translation in most languages are
 # incomplete and not well maintained.
 LANGUAGES = {}
+
+
+
+SQLALCHEMY_CUSTOM_VERSIONED_ENGINES = {
+    'oracle': 'sqlalchemy_oracledb'
+}
 
 
 # Override the default d3 locale format
@@ -1575,6 +1584,7 @@ PREFERRED_DATABASES: list[str] = [
     "Presto",
     "MySQL",
     "SQLite",
+    "Oraacle",
     # etc.
 ]
 # When adding a new database we try to connect to it. Depending on which parameters are

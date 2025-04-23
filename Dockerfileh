@@ -1,0 +1,79 @@
+# ---------- Stage 1: Frontend Build ----------
+    FROM node:20-bookworm-slim AS frontend-builder
+
+    WORKDIR /app/superset-frontend
+    COPY superset-frontend/package*.json ./
+    RUN apt-get update && apt-get install -y build-essential python3 zstd
+    RUN npm ci
+    
+    COPY superset-frontend/ ./
+    ARG BUILD_CMD=build
+    RUN npm run $BUILD_CMD
+    
+    # ---------- Stage 2: Translation Compiler ----------
+    FROM python:3.11.11-slim-bookworm AS translation-builder
+    
+    WORKDIR /app
+    RUN apt-get update && apt-get install -y gcc libpq-dev libffi-dev curl unzip
+    RUN pip install --upgrade pip uv
+    RUN uv venv /app/.venv
+    ENV PATH="/app/.venv/bin:$PATH"
+    
+    COPY requirements/translations.txt requirements/
+    RUN uv pip install -r requirements/translations.txt
+    
+    COPY superset/translations/ /app/translations_mo/
+    RUN pybabel compile -d /app/translations_mo || true
+    
+    # ---------- Stage 3: Base Image Setup ----------
+    FROM python:3.11.11-slim-bookworm AS base
+    
+    ENV SUPERSET_HOME=/app/superset_home \
+        PYTHONPATH=/app/pythonpath \
+        PATH="/app/.venv/bin:$PATH"
+    
+    RUN apt-get update && apt-get install -y \
+        libpq-dev libsasl2-dev libldap2-dev curl unzip libaio1 libffi-dev gcc && \
+        useradd --user-group -d $SUPERSET_HOME -m --no-log-init --shell /bin/bash superset
+    
+    RUN mkdir -p $SUPERSET_HOME /app/.venv && chown -R superset:superset $SUPERSET_HOME
+    
+    COPY docker/*.sh /app/docker/
+    RUN chmod +x /app/docker/*.sh && pip install --upgrade uv && uv venv /app/.venv
+    
+    # ---------- Stage 4: Final Runtime Image ----------
+    FROM base AS final
+    
+    WORKDIR /app
+    USER root
+    
+    COPY --chown=superset:superset superset superset
+    COPY --from=frontend-builder /app/superset-frontend/dist superset/static/assets
+    COPY --from=translation-builder /app/translations_mo superset/translations
+    
+    COPY pyproject.toml setup.py MANIFEST.in README.md ./
+    COPY superset-frontend/package.json superset-frontend/
+    COPY requirements/base.txt requirements/
+    
+    RUN uv pip install -r requirements/base.txt && \
+        uv pip install . && \
+        python -m compileall /app/superset && \
+        pip install --upgrade pip
+    
+    # Optional: Install Oracle Instant Client (if needed)
+    RUN curl -O https://download.oracle.com/otn_software/linux/instantclient/instantclient-basiclite-linux.x64-21.11.0.0.0dbru.zip && \
+        unzip instantclient-basiclite-linux.x64-21.11.0.0.0dbru.zip -d /opt/oracle && \
+        rm instantclient-basiclite-linux.x64-21.11.0.0.0dbru.zip && \
+        ln -s /opt/oracle/instantclient_* /opt/oracle/instantclient && \
+        echo /opt/oracle/instantclient > /etc/ld.so.conf.d/oracle-instantclient.conf && \
+        ldconfig && \
+        uv pip install cx_Oracle sqlalchemy-oracledb
+    
+    COPY docker/entrypoints /app/docker/entrypoints
+    RUN chmod +x /app/docker/entrypoints/*.sh
+    
+    USER superset
+    EXPOSE 8088
+    HEALTHCHECK CMD /app/docker/docker-healthcheck.sh
+    CMD ["/app/docker/entrypoints/run-server.sh"]
+    
